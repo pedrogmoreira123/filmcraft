@@ -296,3 +296,35 @@ fn captions_never_overlap_with_dense_words() {
     let b = caption_blocks(&words, &rules, R);
     check_blocks(&b, &rules);
 }
+
+fn word(text: &str, start: f64, end: f64) -> SeqWord {
+    SeqWord { text: text.into(), start: s(start), end: s(end), clip: ClipId(1), item: MEDIA, index: 0, track: 0, speaker: None, confidence: 1.0 }
+}
+
+#[test]
+fn standalone_fillers_keep_ordinary_words() {
+    // "Aqui é a Mariana. Então, tipo, ninguém respondeu, né?" with Portuguese fillers that are
+    // also ordinary words: only the ones set off by punctuation or a pause go.
+    let w = vec![
+        word("Aqui", 0.0, 0.3),
+        word("é", 0.3, 0.4),
+        word("a", 0.4, 0.5),
+        word("Mariana.", 0.5, 1.0),
+        word("Então,", 1.1, 1.4),
+        word("tipo,", 1.5, 1.8),
+        word("ninguém", 1.9, 2.3),
+        word("respondeu,", 2.3, 2.8),
+        word("né?", 2.9, 3.1),
+        word("é", 3.6, 3.7),
+        word("isso", 3.7, 4.0),
+    ];
+    let fillers: Vec<String> = ["é", "tipo", "né", "então"].iter().map(|x| x.to_string()).collect();
+    let all = find_fillers(&w, &fillers);
+    assert_eq!(all, vec![1..2, 4..5, 5..6, 8..9, 9..10]);
+    // the last "é" follows a 0.5 s pause but runs straight into "isso": kept
+    assert_eq!(standalone_fillers(&w, all.clone(), s(0.3)), vec![4..5, 5..6, 8..9]);
+    // a hit past the end of the words (hostile input) is dropped, never indexed
+    #[allow(clippy::single_range_in_vec_init)]
+    let hostile = vec![10..12];
+    assert_eq!(standalone_fillers(&w, hostile, s(0.3)), Vec::<std::ops::Range<usize>>::new());
+}

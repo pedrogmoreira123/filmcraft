@@ -370,7 +370,11 @@ fn remove_fillers(s: &mut Session, p: &Value) -> Result<Value> {
         Some(a) => a.iter().filter_map(Value::as_str).map(str::to_string).collect(),
         None => tx::DEFAULT_FILLERS.iter().map(|f| f.to_string()).collect(),
     };
-    let hits = tx::find_fillers(&words, &fillers);
+    let mut hits = tx::find_fillers(&words, &fillers);
+    if p.get("standalone").and_then(Value::as_bool).unwrap_or(false) {
+        let pause = Tick::from_seconds_f64(f64_p(p, "pauseSeconds").unwrap_or(0.3));
+        hits = tx::standalone_fillers(&words, hits, pause);
+    }
     let ranges = tx::filler_ranges(&words, &hits, s.sequence_rate());
     remove_ranges(s, "Remove Filler Words", ranges)
 }
@@ -479,7 +483,15 @@ pub fn commands() -> Vec<CommandSpec> {
             remove_pauses,
             true,
         ),
-        spec("transcript.removeFillers", "Remove Filler Words", &["Sequence", "Transcript"], r#"{"fillers":[str]?}"#, has_transcript, remove_fillers, true),
+        spec(
+            "transcript.removeFillers",
+            "Remove Filler Words",
+            &["Sequence", "Transcript"],
+            r#"{"fillers":[str]?,"standalone":bool=false,"pauseSeconds":f64=0.3}"#,
+            has_transcript,
+            remove_fillers,
+            true,
+        ),
         spec(
             "transcript.createCaptions",
             "Create Captions from Transcript…",

@@ -219,6 +219,30 @@ pub fn find_fillers(words: &[SeqWord], fillers: &[String]) -> Vec<std::ops::Rang
     out
 }
 
+/// Keep only the filler hits set off from the sentence: preceded by the start, punctuation or a
+/// pause of at least `pause`, and followed by the end, punctuation or such a pause. Languages whose
+/// fillers are also ordinary words (Portuguese "é", "então", "tipo") need this, or "Aqui é a
+/// Mariana" loses its verb.
+pub fn standalone_fillers(words: &[SeqWord], hits: Vec<std::ops::Range<usize>>, pause: Tick) -> Vec<std::ops::Range<usize>> {
+    let ends_clause = |w: &SeqWord| w.text.trim_end().ends_with([',', '.', '!', '?', ';', ':', '…']);
+    hits.into_iter()
+        .filter(|h| {
+            let (Some(first), Some(last)) = (words.get(h.start), h.end.checked_sub(1).and_then(|i| words.get(i))) else {
+                return false;
+            };
+            let before = match h.start.checked_sub(1).and_then(|i| words.get(i)) {
+                None => true,
+                Some(prev) => ends_clause(prev) || first.start - prev.end >= pause,
+            };
+            let after = match words.get(h.end) {
+                None => true,
+                Some(next) => ends_clause(last) || next.start - last.end >= pause,
+            };
+            before && after
+        })
+        .collect()
+}
+
 /// Timeline ranges removing the filler words `hits`: each word range snapped to the nearest frames
 /// (never into the neighbouring words' frames).
 pub fn filler_ranges(words: &[SeqWord], hits: &[std::ops::Range<usize>], rate: FrameRate) -> Vec<TimeRange> {

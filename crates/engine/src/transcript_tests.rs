@@ -179,3 +179,29 @@ fn generate_without_a_transcriber() {
     let r = s.execute("transcript.generate", json!({})).unwrap();
     assert!(r["items"].as_array().unwrap().len() >= 2, "{r}");
 }
+
+#[test]
+fn remove_fillers_standalone_keeps_portuguese_verbs() {
+    let (mut s, item, _) = session();
+    let q = s.active_sequence().unwrap();
+    let sin = q.audio_tracks[0].items[0].source_in;
+    let sec = |x: f64| sin + Tick::from_seconds_f64(x);
+    let mut t = Transcript { language: "pt".into(), ..Default::default() };
+    for (text, a, b) in
+        [("Aqui", 0.2, 0.4), ("é", 0.4, 0.5), ("a", 0.5, 0.6), ("Mariana,", 0.6, 1.0), ("tipo,", 1.1, 1.4), ("da", 1.5, 1.6), ("loja.", 1.6, 2.0)]
+    {
+        t.words.push(Word::new(text, sec(a), sec(b)));
+    }
+    t.normalize();
+    s.transcriber = Some(Arc::new(FixedTranscriber { transcript: t, id: "fixed".into() }));
+    s.execute("transcript.generate", json!({"items": [item.0]})).unwrap();
+    let fillers = json!(["é", "tipo", "né", "então", "ahn", "hum"]);
+    let r = s.execute("transcript.removeFillers", json!({"fillers": fillers, "standalone": true})).unwrap();
+    assert_eq!(r["removed"], 1, "{r}");
+    assert_eq!(words(&mut s), ["Aqui", "é", "a", "Mariana,", "da", "loja."]);
+    // without `standalone` the verb goes too (the upstream behaviour, unchanged)
+    let r = s.execute("transcript.removeFillers", json!({"fillers": fillers})).unwrap();
+    assert_eq!(r["removed"], 1, "{r}");
+    assert_eq!(words(&mut s), ["Aqui", "a", "Mariana,", "da", "loja."]);
+    s.active_sequence().unwrap().check().unwrap();
+}
