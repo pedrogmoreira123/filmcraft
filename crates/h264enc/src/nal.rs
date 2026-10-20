@@ -8,6 +8,7 @@ pub const NAL_SEI: u8 = 6;
 pub const NAL_SPS: u8 = 7;
 pub const NAL_PPS: u8 = 8;
 pub const NAL_AUD: u8 = 9;
+pub const NAL_FILLER: u8 = 12;
 
 /// Build a NAL unit (header + escaped RBSP), without start code.
 pub fn nal(nal_ref_idc: u8, nal_type: u8, rbsp: &[u8]) -> Vec<u8> {

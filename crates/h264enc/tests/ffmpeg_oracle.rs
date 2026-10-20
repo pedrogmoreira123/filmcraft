@@ -334,3 +334,27 @@ fn rejects_bad_config() {
     let y = vec![0u8; 10];
     assert!(enc.try_encode(&YuvFrame { y: &y, u: &y, v: &y, y_stride: 64, uv_stride: 32 }, 0).is_err());
 }
+
+/// CBR with filler data holds the rate on pictures that need far fewer bits (a flat card), and the
+/// filler NAL units decode cleanly; without filler the same stream stays far below the target.
+#[test]
+fn cbr_filler_holds_the_rate() {
+    if ffmpeg().is_none() {
+        return;
+    }
+    let (w, h, n) = (640, 360, 60);
+    let flat = Yuv { w, h, y: vec![200; w * h], u: vec![128; w * h / 4], v: vec![128; w * h / 4] };
+    let frames: Vec<Yuv> = (0..n).map(|_| Yuv { w, h, y: flat.y.clone(), u: flat.u.clone(), v: flat.v.clone() }).collect();
+    let rate = RateControl::Cbr { kbps: 1500 };
+    let plain = encode(cfg(w, h, Profile::High, Preset::Speed, 2, rate, 0), &frames);
+    let mut c = cfg(w, h, Profile::High, Preset::Speed, 2, rate, 0);
+    c.filler = true;
+    let padded = encode(c, &frames);
+    verify("cbr_filler", &padded, w, h, n);
+    let (k0, k) = (bitrate(&plain, n), bitrate(&padded, n));
+    eprintln!("flat card: {k0:.1} kbps without filler, {k:.1} kbps with (target 1500)");
+    assert!(k0 < 1500.0 * 0.5, "the flat card should need far fewer bits ({k0:.1} kbps)");
+    assert!((k - 1500.0).abs() / 1500.0 <= 0.05, "{k:.1} kbps vs target 1500");
+    // the pictures themselves are unchanged: same reconstruction
+    assert!(plain.recon.iter().zip(&padded.recon).all(|(a, b)| a.y == b.y), "filler must not change the pictures");
+}

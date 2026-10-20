@@ -1690,6 +1690,8 @@ fn h264_factory(format: Format, w: u32, h: u32, rate: FrameRate, s: &ExportSetti
         BitrateMode::Crf => filmcraft_h264enc::RateControl::Crf(if s.crf.is_finite() { s.crf } else { DEFAULT_CRF }),
         _ => filmcraft_h264enc::RateControl::Vbr { target_kbps: kbps, max_kbps: max },
     };
+    // CBR holds the rate: pictures that need fewer bits are padded with filler data
+    cfg.filler = s.bitrate_mode == BitrateMode::Cbr;
     cfg.pass = match &s.h264_pass {
         H264Pass::Single => filmcraft_h264enc::Pass::Single,
         H264Pass::First => filmcraft_h264enc::Pass::First,

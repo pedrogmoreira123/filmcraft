@@ -166,6 +166,10 @@ pub struct EncoderConfig {
     /// Requested level_idc (41 = level 4.1); None = the lowest level that fits. A level too low
     /// for the stream is raised to the one it needs.
     pub level: Option<u8>,
+    /// With [`RateControl::Cbr`] in a single pass: pad each access unit with filler data NAL units
+    /// (type 12) so the stream holds the bitrate even where the pictures need fewer bits, as a CBR
+    /// (HRD) stream does. The rate control still sees only the picture bits.
+    pub filler: bool,
 }
 
 impl EncoderConfig {
@@ -192,6 +196,7 @@ impl EncoderConfig {
             content_light: None,
             aud: true,
             level: None,
+            filler: false,
         }
     }
 }
@@ -287,6 +292,8 @@ pub struct Encoder {
     frame_pool: Vec<Frame>,
     hpel_pool: Vec<[picture::Plane; 3]>,
     sei_sent: bool,
+    /// CBR filler: bits the stream is still owed against the target rate.
+    filler_debt: f64,
     slices: usize,
     pool: Pool,
     recon: Option<Vec<ReconFrame>>,
@@ -515,6 +522,7 @@ impl Encoder {
             frame_pool: Vec::new(),
             hpel_pool: Vec::new(),
             sei_sent: false,
+            filler_debt: 0.0,
             slices,
             pool,
             recon: None,
@@ -904,6 +912,7 @@ impl Encoder {
                 data.extend_from_slice(n);
             }
             let total_bits = data.len() as u64 * 8;
+            self.pad_cbr(&mut data, total_bits, annexb);
             self.rc.update(st, qpf, cplx, total_bits);
             if self.record_pass1 {
                 self.rc.record_pass1(st, qpf, cplx, total_bits);
@@ -958,6 +967,33 @@ impl Encoder {
             self.recycle(input.frame);
             out.push(Packet { data, pts: input.pts, dts: dts_base, keyframe: idr, frame_type, qp });
         }
+    }
+
+    /// CBR filler (see [`EncoderConfig::filler`]): append one filler data NAL unit when the stream is
+    /// behind the target rate.
+    fn pad_cbr(&mut self, data: &mut Vec<u8>, picture_bits: u64, annexb: bool) {
+        let RateControl::Cbr { kbps } = self.cfg.rate else { return };
+        if !self.cfg.filler || !matches!(self.cfg.pass, Pass::Single) || self.cfg.fps_num == 0 {
+            return;
+        }
+        let per_frame = kbps as f64 * 1000.0 * self.cfg.fps_den as f64 / self.cfg.fps_num as f64;
+        self.filler_debt += per_frame - picture_bits as f64;
+        // framing (4) + NAL header (1) + rbsp_trailing_bits (1); at most four frames' worth at once
+        let bytes = ((self.filler_debt / 8.0).floor() - 6.0).min(per_frame * 4.0 / 8.0);
+        if !bytes.is_finite() || bytes < 1.0 {
+            return;
+        }
+        let n = bytes as usize;
+        let mut rbsp = vec![0xFF; n];
+        rbsp.push(0x80);
+        let unit = nal::nal(0, nal::NAL_FILLER, &rbsp);
+        if annexb {
+            data.extend_from_slice(&[0, 0, 0, 1]);
+        } else {
+            data.extend_from_slice(&(unit.len() as u32).to_be_bytes());
+        }
+        data.extend_from_slice(&unit);
+        self.filler_debt -= (unit.len() + 4) as f64 * 8.0;
     }
 
     fn recycle_ref(&mut self, r: RefPic) {
