@@ -1,0 +1,99 @@
+# Fi.V build of FilmCraft: linux-x86_64 and windows-x64 with speech to text (whisper) and without
+# the ArtCraft marks (docs/brand/LICENSE-brand.txt), published as release fiv-<upstream>-<n>.
+# The VPS downloads its binaries from here and checks them against SHA256SUMS.txt.
+name: Fi.V release
+
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: "Build number n of fiv-<upstream version>-<n>"
+        type: string
+        default: "1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fiv-release-${{ inputs.build }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux-x86_64, runner: ubuntu-22.04, exe: "" }
+          - { os: windows-x64, runner: windows-2022, exe: ".exe" }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Linux libraries (same list as craft-common-actions install-linux-deps)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
+            libasound2-dev pkg-config
+      - name: Toolchain
+        shell: bash
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Tests of the changed crates
+        shell: bash
+        run: cargo test --release --locked -p filmcraft-edit -p filmcraft-engine transcript
+      - name: Build (whisper + unbranded)
+        shell: bash
+        run: cargo build --release --locked -p filmcraft-cli -p filmcraft --features "filmcraft-cli/whisper filmcraft/whisper filmcraft/unbranded"
+      - name: Smoke test
+        shell: bash
+        run: |
+          ./target/release/filmcraft-cli${{ matrix.exe }} --version
+          ./target/release/filmcraft-cli${{ matrix.exe }} describe transcript.generate | grep -q '"enabled":true'
+          ./target/release/filmcraft-cli${{ matrix.exe }} describe transcript.removeFillers | grep -q standalone
+      - name: Package
+        shell: bash
+        run: |
+          v=$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="filmcraft-cli"))')
+          name="fiv-filmcraft-$v-${{ inputs.build }}-${{ matrix.os }}"
+          mkdir -p "dist/$name"
+          cp target/release/filmcraft-cli${{ matrix.exe }} target/release/filmcraft${{ matrix.exe }} "dist/$name/"
+          cp LICENSE-APACHE LICENSE-MIT NOTICE "dist/$name/"
+          printf 'Modified build based on FilmCraft %s by the ArtCraft team (https://github.com/storytold/filmcraft).\nNot an official ArtCraft product. Changes: FORK-NOTES.md in https://github.com/%s\n' "$v" "${{ github.repository }}" > "dist/$name/README-FIV.txt"
+          cp FORK-NOTES.md "dist/$name/"
+          cd dist
+          if [ "${{ runner.os }}" = "Windows" ]; then 7z a -tzip "$name.zip" "$name" > /dev/null; else tar czf "$name.tar.gz" "$name"; fi
+          rm -rf "$name"
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: SHA256SUMS and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="filmcraft-cli"))')
+          tag="fiv-$v-${{ inputs.build }}"
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release create "$tag" * --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --title "Fi.V FilmCraft $v-${{ inputs.build }}" \
+            --notes "Modified build based on FilmCraft $v by the ArtCraft team. Not an official ArtCraft product. Features: whisper (speech to text), unbranded. Changes: FORK-NOTES.md."
