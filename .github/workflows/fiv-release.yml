@@ -4,21 +4,19 @@
 name: Fi.V release
 
 on:
-  workflow_dispatch:
-    inputs:
-      build:
-        description: "Build number n of fiv-<upstream version>-<n>"
-        type: string
-        default: "1"
+  # push a tag fiv-<upstream version>-<n> (e.g. fiv-0.9.0-1) on the fiv/<version> branch
+  push:
+    tags: ["fiv-*"]
 
 permissions:
   contents: write
 
 concurrency:
-  group: fiv-release-${{ inputs.build }}
+  group: fiv-release-${{ github.ref_name }}
   cancel-in-progress: false
 
 env:
+  BUILD: ${{ github.ref_name }}
   CARGO_TERM_COLOR: never
   CARGO_INCREMENTAL: "0"
 
@@ -60,7 +58,7 @@ jobs:
         shell: bash
         run: |
           v=$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="filmcraft-cli"))')
-          name="fiv-filmcraft-$v-${{ inputs.build }}-${{ matrix.os }}"
+          name="${BUILD/fiv-/fiv-filmcraft-}-${{ matrix.os }}"
           mkdir -p "dist/$name"
           cp target/release/filmcraft-cli${{ matrix.exe }} target/release/filmcraft${{ matrix.exe }} "dist/$name/"
           cp LICENSE-APACHE LICENSE-MIT NOTICE "dist/$name/"
@@ -90,10 +88,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           v=$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="filmcraft-cli"))')
-          tag="fiv-$v-${{ inputs.build }}"
+          tag="$BUILD"
+          case "$tag" in "fiv-$v-"*) ;; *) echo "tag $tag does not match version $v"; exit 1;; esac
           cd dist
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
           gh release create "$tag" * --repo "${{ github.repository }}" --target "${{ github.sha }}" \
-            --title "Fi.V FilmCraft $v-${{ inputs.build }}" \
+            --title "Fi.V FilmCraft ${tag#fiv-}" \
             --notes "Modified build based on FilmCraft $v by the ArtCraft team. Not an official ArtCraft product. Features: whisper (speech to text), unbranded. Changes: FORK-NOTES.md."

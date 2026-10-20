@@ -4,7 +4,7 @@ Fork of [storytold/filmcraft](https://github.com/storytold/filmcraft) kept by Fi
 video pipeline. Modified build based on FilmCraft by the ArtCraft team; not an official ArtCraft
 product. Branch `fiv/<upstream version>`, cut from the release tag that was tested
 (`fiv/0.9.0` from `v0.9.0`). Releases: `fiv-<upstream version>-<n>` (workflow
-`.github/workflows/fiv-release.yml`, run by hand), with `SHA256SUMS.txt`.
+`.github/workflows/fiv-release.yml`, started by pushing the tag `fiv-<version>-<n>`), with `SHA256SUMS.txt`.
 
 ## Build features
 
