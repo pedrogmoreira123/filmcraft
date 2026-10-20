@@ -9,6 +9,12 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+# Builds of modified versions: leave out the ArtCraft wordmark, as docs/brand/LICENSE-brand.txt
+# requires for anything other than the official FilmCraft.
+unbranded = []
+
 [dependencies]
 craft-ui = { workspace = true }
 filmcraft-time = { workspace = true }
