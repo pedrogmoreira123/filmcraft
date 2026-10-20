@@ -52,8 +52,8 @@ jobs:
         shell: bash
         run: |
           ./target/release/filmcraft-cli${{ matrix.exe }} --version
-          ./target/release/filmcraft-cli${{ matrix.exe }} describe transcript.generate | grep -q '"enabled":true'
-          ./target/release/filmcraft-cli${{ matrix.exe }} describe transcript.removeFillers | grep -q standalone
+          ./target/release/filmcraft-cli${{ matrix.exe }} describe transcript.generate --compact | grep -q '"enabled":true'
+          ./target/release/filmcraft-cli${{ matrix.exe }} describe transcript.removeFillers --compact | grep -q standalone
       - name: Package
         shell: bash
         run: |

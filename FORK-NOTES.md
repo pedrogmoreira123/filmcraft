@@ -43,7 +43,21 @@ base is the default for narration.
 - **Test.** `cargo clippy -p filmcraft-ui-egui --features unbranded -- -D warnings`; open the app
   and check the Start screen and Help ▸ About show no wordmark.
 
-### 3. CI: `fiv-release.yml`
+### 3. H.264 CBR export holds the rate (filler data)
+
+- **Problem.** The "CBR" export ran the 1-pass ABR model without padding: clean motion graphics came
+  out far below the target. The 9:16 reel exported at "CBR 16 Mbps" measured 9.2 Mbps (simple
+  scenes at 3–4 Mbps), below the 10–16 Mbps delivery spec; a flat card measured 20 kbps for a
+  1500 kbps target.
+- **Change.** `EncoderConfig::filler` (`crates/h264enc/src/lib.rs`, `pad_cbr`): in single-pass CBR,
+  append one filler data NAL unit (type 12) per access unit while the stream is behind the target, as
+  a CBR/HRD stream does. The rate control still sees only the picture bits, so the pictures are
+  unchanged. The export sets it for `BitrateMode::Cbr` (`crates/export/src/lib.rs`).
+- **Test.** `cargo test -p filmcraft-h264enc --test ffmpeg_oracle cbr_filler_holds_the_rate`
+  (flat card: 20.2 kbps without filler, 1500.0 kbps with; decodes in ffmpeg with zero errors; same
+  reconstruction). Full suites of `filmcraft-h264enc` and `filmcraft-export`: 152 passed.
+
+### 4. CI: `fiv-release.yml`
 
 Builds linux-x86_64 (ubuntu-22.04) and windows-x64 (windows-2022) with the features above, runs the
 transcript tests and a smoke test (`transcript.generate` enabled, `removeFillers` lists
@@ -51,6 +65,11 @@ transcript tests and a smoke test (`transcript.generate` enabled, `removeFillers
 release `fiv-<version>-<n>`. Actions are pinned by commit SHA.
 
 ## Known gaps (not changed)
+
+- `export --settings` does not reach the H.264 rate control (bitrate stays the preset's); pass
+  `bitrateKbps`/`bitrateMode` as top-level parameters of `exec file.exportMedia` instead.
+- The AAC encoder adds about 1.3 dB of true-peak overshoot (mix at −1.9 dBTP measured −0.6 dBTP
+  after export); master to −2.6 dBTP to deliver ≤ −1 dBTP.
 
 - `filmcraft-cli mcp` (headless) has no `--automation-read-root/--automation-write-root`, unlike the
   other Craft apps. Confine it by running it from a dedicated working folder.
